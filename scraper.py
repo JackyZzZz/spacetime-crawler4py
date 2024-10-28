@@ -19,9 +19,12 @@ longest_page = {
 processed_urls = 0
 results_reported = False
 
+def tokenize(text):
+    # Use regular expression to find all sequences of alphanumeric characters
+    tokens = re.findall(r'\b\w+\b', text.lower())
+    return tokens
 
 
-'''
 def scraper(url, resp):
     global processed_urls
     global results_reported
@@ -86,10 +89,6 @@ def extract_next_links(url, resp):
             result.append(good_link)
             # print(good_link)
 
-
-
-        
-
     return result
 
 
@@ -100,7 +99,6 @@ def is_valid(url):
     try:
         # keywords = ['calendar', 'month', 'year', 'week', 'map']
         
-
 
         parsed = urlparse(url)
 
