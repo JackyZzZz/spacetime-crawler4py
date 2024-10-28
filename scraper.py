@@ -21,6 +21,7 @@ results_reported = False
 
 
 
+'''
 def scraper(url, resp):
     global processed_urls
     global results_reported
@@ -36,29 +37,7 @@ def scraper(url, resp):
 
     # Extract and validate links from the current page
     links = extract_next_links(url, resp)
-    valid_links = [link for link in links if is_valid(link)]
-    
-    return valid_links
-
-def tokenize_text(text):
-    """
-    Tokenizes the input text into words, removes stop words, and non-alphanumeric characters.
-    """
-    # Convert text to lowercase
-    text = text.lower()
-
-    # Remove non-alphanumeric characters using regex
-    # This pattern retains lowercase letters, numbers, and whitespace
-    text = re.sub(r'[^a-z0-9\s]', '', text)
-
-    # Split text into words
-    words = text.split()
-
-    # Remove stop words
-    filtered_words = [word for word in words if word not in STOP_WORDS]
-
-    return filtered_words
-
+    return [link for link in links if is_valid(link)]
 
 def extract_next_links(url, resp):
     # Implementation required.
@@ -83,42 +62,26 @@ def extract_next_links(url, resp):
 
 
     result = []
-    allowed_domains = ["ics.uci.edu","cs.uci.edu","informatics.uci.edu","stat.uci.edu","today.uci.edu/department/information_computer_sciences"]
+    allowed_domains = [".ics.uci.edu",".cs.uci.edu",".informatics.uci.edu",".stat.uci.edu"]
 
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
 
     #check if it has "high information value", we may not use it. Just some hardcode heuristics. 
     if len(soup.get_text(separator=" ", strip=True)) < 200:
         return list()
-
-     # Extract text and process word counts
-    page_text = soup.get_text(separator=" ", strip=True)
-    words = tokenize_text(page_text)
-    word_count = len(words)
-
-    # Update the longest page information
-    global longest_page
-    if word_count > longest_page['word_count']:
-        longest_page['url'] = resp.url
-        longest_page['word_count'] = word_count
-
-    # Update global word frequencies
-    global word_frequencies
-    word_frequencies.update(words)
     
     hyperlinks = [a['href'] for a in soup.find_all('a', href=True)]
-    
-    
+
     for link in hyperlinks:
         if not link.startswith('http'):
             continue
-        parsed = urlparse(urljoin(resp.url, link))
-
+        # parsed = urlparse(urljoin(url, link))._replace(fragment="")
+        parsed = urlparse(link)._replace(fragment="")
 
         domain = parsed.netloc
         path = parsed.path
 
-        if any(domain.endswith(allowed) and path.startswith('/') for allowed in allowed_domains):
+        if any(domain.endswith(allowed) for allowed in allowed_domains) or (domain == "today.uci.edu" and path.startswith("/department/information_computer_sciences")):
             good_link = urlunparse(parsed)
             result.append(good_link)
             # print(good_link)
@@ -141,7 +104,13 @@ def is_valid(url):
 
         parsed = urlparse(url)
 
-        if parsed.query and re.search(r"(date|ical|action|session|track|ref|utm|fbclid|gclid|mc_eid|mc_cid)", parsed.query.lower()):
+        # if parsed.query and re.search(r"(date|ical|action|session|track|ref|utm|fbclid|gclid|mc_eid|mc_cid)", parsed.query.lower()):
+        #     return False
+        
+        if parsed.query and re.search(r"(date|ical|action|filter)", parsed.query.lower()):
+            return False
+
+        if re.search(r"(/pdf/|login|/month|/uploads/|facebook|twitter)", url.lower()):
             return False
 
         date = re.compile(
@@ -166,7 +135,7 @@ def is_valid(url):
         return not re.search(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
-            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
+            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf|ppsx|bib"
             + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
