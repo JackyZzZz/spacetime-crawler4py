@@ -2,10 +2,33 @@ import re
 from urllib.parse import urlparse, urljoin, urlunparse
 from bs4 import BeautifulSoup
 
+'''
 def scraper(url, resp):
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
+'''
+unique_urls = set()
 
+def scraper(url, resp):
+    links = extract_next_links(url, resp)
+
+    '''
+    if len(unique_urls) >100:
+        print("Reached 100 unique URLs. Stopping the program.")
+        sys.exit()
+    '''
+
+    for link in links:
+        if is_valid(link):
+            unique_link = find_unique(link)
+            #print("Valid and Unique Link Found:", unique_link)
+            unique_urls.add(unique_link)
+    print("count", len(unique_urls))
+    return list(unique_urls)
+
+def find_unique(link):
+    return link.split("#", 1)[0]
+    
 def extract_next_links(url, resp):
     # Implementation required.
     # url: the URL that was used to get the page
