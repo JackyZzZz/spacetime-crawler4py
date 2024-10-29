@@ -21,21 +21,30 @@ def extract_next_links(url, resp):
         "we couldn't find", "this page may have been removed"
     ]
 
+    with open('./Logs/status.txt', 'a') as file:
+        if url != resp.url:
+            file.write(f'url: {url} resp.url: {resp.url} - <{resp.status}> - <{resp.error}>\n')
+        else:
+            file.write(f'{url} - <{resp.status}> - <{resp.error}>\n')
+    
+    if not resp.raw_response.content:
+        return list()
+
     if resp.status != 200 or any(resp.error == error_phrase for error_phrase in error_phrases):
         return list()
     
+
     # print(resp.status)
     # print(resp.error)
 
 
-    result = []
-    allowed_domains = [".ics.uci.edu",".cs.uci.edu",".informatics.uci.edu",".stat.uci.edu"]
+
 
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
 
     #check if it has "high information value", we may not use it. Just some hardcode heuristics. 
-    if len(soup.get_text(separator=" ", strip=True)) < 200:
-        return list()
+    # if len(soup.get_text(separator=" ", strip=True)) < 200:
+    #     return list()
 
     forms = soup.find_all("form")
 
@@ -48,11 +57,17 @@ def extract_next_links(url, resp):
     
     hyperlinks = [a['href'] for a in soup.find_all('a', href=True)]
 
+
+    result = []
+    allowed_domains = [".ics.uci.edu",".cs.uci.edu",".informatics.uci.edu",".stat.uci.edu"]
+
     for link in hyperlinks:
         if not link.startswith('http'):
             continue
-        # parsed = urlparse(urljoin(url, link))._replace(fragment="")
-        parsed = urlparse(link)._replace(fragment="")
+        if link.startswith("/") and link.endswith("/"):
+            parsed = urlparse(urljoin(url, link))._replace(fragment="")
+        else:
+            parsed = urlparse(link)._replace(fragment="")
 
         domain = parsed.netloc
         path = parsed.path
@@ -74,7 +89,6 @@ def is_valid(url):
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
     try:
-        # keywords = ['calendar', 'month', 'year', 'week', 'map']
         
 
 
@@ -111,7 +125,7 @@ def is_valid(url):
         return not re.search(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
-            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf|ppsx|bib"
+            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf|ppsx|bib|sql"
             + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
