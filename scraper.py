@@ -1,7 +1,7 @@
 import re
 from urllib.parse import urlparse, urljoin, urlunparse
 from bs4 import BeautifulSoup
-from collections import Counter
+from collections import Counter, defaultdict
 import nltk
 from nltk.corpus import stopwords
 
@@ -19,6 +19,10 @@ longest_page = {
 processed_urls = 0
 results_reported = False
 
+# Global variables to track unique URLs and subdomains
+unique_urls = set()
+subdomains = defaultdict(int)
+
 def tokenize(text):
     # Use regular expression to find all sequences of alphanumeric characters
     tokens = re.findall(r'\b\w+\b', text.lower())
@@ -30,6 +34,8 @@ def scraper(url, resp):
     global results_reported
     global word_frequencies
     global longest_page
+    global unique_urls
+    global subdomains
 
     # Increment the counter each time a URL is processed
     processed_urls += 1
@@ -37,6 +43,7 @@ def scraper(url, resp):
     # Check if 100 URLs have been processed and results have not been reported yet
     if processed_urls == 100 and not results_reported:
         report_results()        # Output the scraping results
+        write_unique_urls_and_subdomains()  # Output the unique URLs and subdomains
         results_reported = True  # Set the flag to prevent multiple reports
         return []                # Optionally stop further crawling by returning an empty list
 
@@ -70,6 +77,27 @@ def scraper(url, resp):
     if word_count > longest_page['word_count']:
         longest_page['word_count'] = word_count
         longest_page['url'] = resp.url
+
+    # Process the current URL for uniqueness and subdomain tracking
+    parsed_url = urlparse(resp.url)._replace(fragment="")
+    normalized_url = urlunparse(parsed_url)
+    
+    if normalized_url not in unique_urls:
+        unique_urls.add(normalized_url)
+        
+        # Extract subdomain
+        domain_parts = parsed_url.netloc.split('.')
+        if len(domain_parts) > 2:
+            subdomain = '.'.join(domain_parts[:-2]) + '.' + '.'.join(domain_parts[-2:])
+        else:
+            subdomain = parsed_url.netloc  # No subdomain
+
+        # print(f"Unique URL: {normalized_url}")
+        # print(f"unique_set: {unique_urls}")
+        # print(f"Subdomain: {subdomain}")
+        # print(f"subdomains: {subdomains}\n{'-'*80}\n")
+        
+        subdomains[subdomain] += 1
 
     return [link for link in links if is_valid(link)]
 
@@ -222,3 +250,15 @@ def report_results():
             f.write(f"Longest page: {longest_page['url']} with {longest_page['word_count']} words.\n")
         else:
             f.write("No pages crawled to determine the longest page.\n")
+
+def write_unique_urls_and_subdomains():
+    # Write the length of unique URLs set
+    with open("Logs/unique_urls.txt", "w") as f:
+        f.write(f"Total unique URLs: {len(unique_urls)}\n")
+
+    # Write the subdomains dictionary sorted alphabetically by subdomain
+    sorted_subdomains = dict(sorted(subdomains.items()))
+    with open("Logs/subdomains.txt", "w") as f:
+        f.write("Subdomains and their unique page counts:\n")
+        for subdomain, count in sorted_subdomains.items():
+            f.write(f"{subdomain}: {count}\n")
