@@ -187,7 +187,7 @@ def is_valid(url):
         if parsed.query and re.search(r"(date|ical|action|filter)", parsed.query.lower()):
             return False
         #Rule out these conditions
-        if re.search(r"(login|facebook|twitter)", url.lower()):
+        if re.search(r"(/pdf/|login|facebook|twitter)", url.lower()):
             return False
         #Rule out possible calendar
         date = re.compile(
