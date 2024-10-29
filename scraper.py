@@ -28,6 +28,8 @@ def tokenize(text):
 def scraper(url, resp):
     global processed_urls
     global results_reported
+    global word_frequencies
+    global longest_page
 
     # Increment the counter each time a URL is processed
     processed_urls += 1
@@ -38,9 +40,39 @@ def scraper(url, resp):
         results_reported = True  # Set the flag to prevent multiple reports
         return []                # Optionally stop further crawling by returning an empty list
 
+    # Check if the response status is 200 OK
+    if resp.status != 200:
+        return []
+
     # Extract and validate links from the current page
     links = extract_next_links(url, resp)
+
+    # Process the page content to update word frequencies and longest page
+    # Get the text content from the page
+    soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
+    text = soup.get_text(separator=' ', strip=True)
+
+    # **Print the URL and its text content**
+    print(f"URL: {resp.url}")
+    print(f"Text content:\n{text}\n{'-'*80}\n")
+
+    # Tokenize the text
+    tokens = tokenize(text)
+
+    # Remove stop words
+    filtered_tokens = [token for token in tokens if token not in STOP_WORDS]
+
+    # Update word frequencies
+    word_frequencies.update(filtered_tokens)
+
+    # Update the longest page if this page has more words
+    word_count = len(filtered_tokens)
+    if word_count > longest_page['word_count']:
+        longest_page['word_count'] = word_count
+        longest_page['url'] = resp.url
+
     return [link for link in links if is_valid(link)]
+
 
 def extract_next_links(url, resp):
     # Implementation required.
