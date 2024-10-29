@@ -155,7 +155,7 @@ def extract_next_links(url, resp):
         # join partial directory
         if link.startswith("/") and link.endswith("/"):
             parsed = urlparse(urljoin(url, link))._replace(fragment="")
-        elif link.startswith('http'):
+        elif not link.startswith('http'):
             continue
         else:
             parsed = urlparse(link)._replace(fragment="")
