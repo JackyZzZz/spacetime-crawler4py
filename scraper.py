@@ -96,7 +96,7 @@ def is_valid(url):
         if parsed.query and re.search(r"(date|ical|action|filter)", parsed.query.lower()):
             return False
         #Rule out these conditions
-        if re.search(r"(login|facebook|twitter)", url.lower()):
+        if re.search(r"(login|facebook|twitter|/uploads/|/month|/pdf/)", url.lower()):
             return False
         #Rule out possible calendar
         date = re.compile(
@@ -122,7 +122,7 @@ def is_valid(url):
         return not re.search(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
-            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf|ppsx|bib|sql"
+            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf|ppsx|bib|sql|webp"
             + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
