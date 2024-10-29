@@ -112,38 +112,30 @@ def extract_next_links(url, resp):
     #         resp.raw_response.url: the url, again
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
+
     error_phrases = [
         "page not found", "404 error", "not available", "no longer exists", 
         "we couldn't find", "this page may have been removed"
     ]
 
-    with open('./Logs/status.txt', 'a') as file:
-        if url != resp.url:
-            file.write(f'url: {url} resp.url: {resp.url} - <{resp.status}> - <{resp.error}>\n')
-        else:
-            file.write(f'{url} - <{resp.status}> - <{resp.error}>\n')
     
-    if not resp.raw_response.content:
+    #Don't parse all pages with none content
+    if not resp.raw_response:
         return list()
 
+    #Don't parse all pages that doesn't return correct status code or that return correct status code but has errors
     if resp.status != 200 or any(resp.error == error_phrase for error_phrase in error_phrases):
         return list()
-    
 
-    # print(resp.status)
-    # print(resp.error)
-
-
-
-
+    #Use BeautifulSoup to parse the web page
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
 
     #check if it has "high information value", we may not use it. Just some hardcode heuristics. 
     # if len(soup.get_text(separator=" ", strip=True)) < 200:
     #     return list()
 
+    #Detect if the page is a login page
     forms = soup.find_all("form")
-
     for form in forms:
         if any(
             input_tag.get("type") == "password" or
@@ -151,23 +143,26 @@ def extract_next_links(url, resp):
             for input_tag in form.find_all("input")):
             return list()
     
+
+    #Get all the hyperlinks from the page
     hyperlinks = [a['href'] for a in soup.find_all('a', href=True)]
 
-
+    # Remove those that doesn't belong to this domain
     result = []
     allowed_domains = [".ics.uci.edu",".cs.uci.edu",".informatics.uci.edu",".stat.uci.edu"]
 
     for link in hyperlinks:
-        if not link.startswith('http'):
-            continue
+        # join partial directory
         if link.startswith("/") and link.endswith("/"):
             parsed = urlparse(urljoin(url, link))._replace(fragment="")
+        elif link.startswith('http'):
+            continue
         else:
             parsed = urlparse(link)._replace(fragment="")
 
         domain = parsed.netloc
         path = parsed.path
-
+        #Check domain
         if any(domain.endswith(allowed) for allowed in allowed_domains) or (domain == "today.uci.edu" and path.startswith("/department/information_computer_sciences")):
             good_link = urlunparse(parsed)
             result.append(good_link)
@@ -188,12 +183,13 @@ def is_valid(url):
         # if parsed.query and re.search(r"(date|ical|action|session|track|ref|utm|fbclid|gclid|mc_eid|mc_cid)", parsed.query.lower()):
         #     return False
         
+        #Rule out those queries
         if parsed.query and re.search(r"(date|ical|action|filter)", parsed.query.lower()):
             return False
-
-        if re.search(r"(/pdf/|login|/month|/uploads/|facebook|twitter)", url.lower()):
+        #Rule out these conditions
+        if re.search(r"(login|facebook|twitter)", url.lower()):
             return False
-
+        #Rule out possible calendar
         date = re.compile(
             r"\b\d{4}[-/]\d{2}[-/]\d{2}\b|"
             r"\b\d{2}[-/]\d{2}[-/]\d{4}\b|"
@@ -203,16 +199,17 @@ def is_valid(url):
         if bool(date.search(url)):
             return False
         
-        page_match = re.search(r"(?:(?:\?|&)page=|/page/)(\d+)", url)
-        if page_match:
-            page_num = int(page_match.group(1))
-            if page_num > 10:
-                return False
+        #Avoid Pagination Traps
+        # page_match = re.search(r"(?:(?:\?|&)page=|/page/)(\d+)", url)
+        # if page_match:
+        #     page_num = int(page_match.group(1))
+        #     if page_num > 10:
+        #         return False
             
 
         if parsed.scheme not in set(["http", "https"]):
             return False
-
+        #Rule out these files
         return not re.search(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
