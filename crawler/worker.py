@@ -1,18 +1,22 @@
-from threading import Thread
-
+from threading import Thread, Lock
 from inspect import getsource
 from utils.download import download
 from utils import get_logger
 import scraper
 import time
+from urllib.parse import urlparse
 
+# Shared data structure and lock for politeness policy
+last_access_times = {}
+last_access_lock = Lock()
 
 class Worker(Thread):
-    def __init__(self, worker_id, config, frontier):
+    def __init__(self, worker_id, config, frontier, barrier):
         self.logger = get_logger(f"Worker-{worker_id}", "Worker")
         self.config = config
         self.frontier = frontier
-        # basic check for requests in scraper
+        self.barrier = barrier
+        # Basic check for requests in scraper
         assert {getsource(scraper).find(req) for req in {"from requests import", "import requests"}} == {-1}, "Do not use requests in scraper.py"
         assert {getsource(scraper).find(req) for req in {"from urllib.request import", "import urllib.request"}} == {-1}, "Do not use urllib.request in scraper.py"
         super().__init__(daemon=True)
@@ -28,6 +32,21 @@ class Worker(Thread):
                     scraper.report_results()
                     scraper.write_unique_urls_and_subdomains()
                 break
+
+            # Enforce politeness policy
+            domain = urlparse(tbd_url).netloc
+            with last_access_lock:
+                last_access = last_access_times.get(domain)
+                current_time = time.time()
+                if last_access:
+                    elapsed_time = current_time - last_access
+                    if elapsed_time < 0.5:
+                        sleep_time = 0.5 - elapsed_time
+                        self.logger.info(f"Sleeping for {sleep_time:.2f} seconds to respect politeness policy for domain {domain}")
+                        time.sleep(sleep_time)
+                # Update the last access time
+                last_access_times[domain] = time.time()
+
             resp = download(tbd_url, self.config, self.logger)
             self.logger.info(
                 f"Downloaded {tbd_url}, status <{resp.status}>, "
