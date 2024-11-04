@@ -58,6 +58,6 @@ class Worker(Thread):
                 self.frontier.mark_url_complete(tbd_url)
                 time.sleep(self.config.time_delay)
             
-        except Exception as e:
-            self.logger.error(f"Error processing URL {tbd_url}: {e}", exc_info=True)
-            self.frontier.mark_url_complete(tbd_url)
+            except Exception as e:
+                self.logger.error(f"Error processing URL {tbd_url}: {e}", exc_info=True)
+                self.frontier.mark_url_complete(tbd_url)
