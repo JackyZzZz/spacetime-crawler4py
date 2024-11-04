@@ -25,21 +25,20 @@ unique_urls = set()
 subdomains = defaultdict(int)
 
 def tokenize(text):
-    # Use regular expression to find all sequences of alphanumeric characters
-    tokens = re.findall(r'\b\w+\b', text.lower())
-    return tokens
+    current_token = ''
+    for char in text:
+        char = char.lower()
+        if 'a' <= char <= 'z' or '0' <= char <= '9':
+            current_token += char
+        else:
+            if current_token:
+                yield current_token
+                current_token = ''
+    if current_token:
+        yield current_token
+
 
 def contains_garbage_content(text):
-    """
-    Checks for patterns or indicators of garbage content in the extracted text.
-    
-    Args:
-        text (str): Extracted text from the page.
-    
-    Returns:
-        bool: True if garbage content is detected, False otherwise.
-    """
-    # Define patterns that are indicative of garbage content
     garbage_patterns = [
         r'\x00',  # Null byte
         r'�',      # Replacement character
@@ -62,10 +61,6 @@ def is_html_content(content_type):
     # Allow content types that start with 'text/html' and exclude others
     if not content_type.startswith('text/html'):
         return False
-    
-    # Optionally, check for known problematic subtypes or parameters
-    # For example, exclude 'text/html; charset=utf-16' if it's problematic
-    # Modify as per your requirements
     return True
 
 
@@ -116,8 +111,7 @@ def scraper(url, resp):
         f.write(f"URL: {resp.url}\n")
         f.write(f"Text content:\n{text}\n{'-'*80}\n")
 
-    # Tokenize the text
-    tokens = tokenize(text)
+    tokens = list(tokenize(text))
 
     # Remove stop words
     filtered_tokens = [token for token in tokens if token not in STOP_WORDS]
