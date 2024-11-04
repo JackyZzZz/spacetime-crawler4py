@@ -230,7 +230,7 @@ def is_valid(url):
             page_match = re.search(pattern, url)
             if page_match:
                 page_num = int(page_match.group(1))
-            if page_num > 10:
+            if page_num > 5:
                 return False
 
         if parsed.scheme not in set(["http", "https"]):
