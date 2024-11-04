@@ -221,6 +221,17 @@ def is_valid(url):
         )
         if bool(date_pattern.search(url)):
             return False
+        
+        pagination_patterns = [
+            r"(?:(?:\?|&)(?:page|p|pg|start|offset|limit)=)(\d+)", 
+        r"/(?:page|p|pg)/(\d+)"]
+        
+        for pattern in pagination_patterns:
+            page_match = re.search(pattern, url)
+            if page_match:
+                page_num = int(page_match.group(1))
+            if page_num > 10:
+                return False
 
         if parsed.scheme not in set(["http", "https"]):
             return False
