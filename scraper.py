@@ -4,10 +4,10 @@ from urllib.parse import urlparse, urljoin, urlunparse
 from bs4 import BeautifulSoup
 from collections import Counter, defaultdict
 import nltk
+from threading import Lock
 from nltk.corpus import stopwords
 
 try:
-    from nltk.corpus import stopwords
     STOP_WORDS = set(stopwords.words('english'))
 except LookupError:
     nltk.download('stopwords')
@@ -23,6 +23,13 @@ longest_page = {
 # Global variables to track unique URLs and subdomains
 unique_urls = set()
 subdomains = defaultdict(int)
+
+# Locks for thread safety
+word_frequencies_lock = Lock()
+longest_page_lock = Lock()
+unique_urls_lock = Lock()
+subdomains_lock = Lock()
+file_lock = Lock()
 
 def tokenize(text):
     current_token = ''
@@ -79,49 +86,52 @@ def scraper(url, resp):
     if contains_garbage_content(text):
         return []
 
-    # Output the URL and its text content to a file
-    with open("Logs/url_content.txt", "a", encoding="utf-8") as f:
-        f.write(f"URL: {resp.url}\n")
-        f.write(f"Text content:\n{text}\n{'-'*80}\n")
-
     tokens = list(tokenize(text))
 
     # Remove stop words
     filtered_tokens = [token for token in tokens if token not in STOP_WORDS]
 
     # Update word frequencies
-    word_frequencies.update(filtered_tokens)
+    with word_frequencies_lock:
+        word_frequencies.update(filtered_tokens)
 
     # Update the longest page if this page has more words
     word_count = len(filtered_tokens)
-    if word_count > longest_page['word_count']:
-        longest_page['word_count'] = word_count
-        longest_page['url'] = resp.url
+    with longest_page_lock:
+        if word_count > longest_page['word_count']:
+            longest_page['word_count'] = word_count
+            longest_page['url'] = resp.url
 
     # Process the current URL for uniqueness and subdomain tracking
     parsed_url = urlparse(resp.url)._replace(fragment="")
     normalized_url = urlunparse(parsed_url)
 
-    if normalized_url not in unique_urls:
-        unique_urls.add(normalized_url)
+    with unique_urls_lock:
+        if normalized_url not in unique_urls:
+            unique_urls.add(normalized_url)
 
-        # Extract subdomain
-        domain_parts = parsed_url.netloc.split('.')
-        if len(domain_parts) > 2:
-            subdomain = '.'.join(domain_parts[:-2]) + '.' + '.'.join(domain_parts[-2:])
-        else:
-            subdomain = parsed_url.netloc  # No subdomain
+            # Extract subdomain
+            domain_parts = parsed_url.netloc.split('.')
+            if len(domain_parts) > 2:
+                subdomain = '.'.join(domain_parts[:-2]) + '.' + '.'.join(domain_parts[-2:])
+            else:
+                subdomain = parsed_url.netloc  # No subdomain
 
-        subdomains[subdomain] += 1
+            with subdomains_lock:
+                subdomains[subdomain] += 1
+
+    # Output the URL and its text content to a file
+    with file_lock:
+        with open("Logs/url_content.txt", "a", encoding="utf-8") as f:
+            f.write(f"URL: {resp.url}\n")
+            f.write(f"Text content:\n{text}\n{'-'*80}\n")
 
     # Extract and validate links from the current page
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
 
 def extract_next_links(url, resp):
-    # Implementation required.
     # Return a list with the hyperlinks (as strings) scraped from resp.raw_response.content
-
     error_phrases = [
         "page not found", "404 error", "not available", "no longer exists",
         "we couldn't find", "this page may have been removed"
@@ -151,23 +161,15 @@ def extract_next_links(url, resp):
     # Get all the hyperlinks from the page
     hyperlinks = [a['href'] for a in soup.find_all('a', href=True)]
 
-    # Remove those that don't belong to allowed domains
+    # Normalize and collect all extracted URLs
     result = []
-    allowed_domains = [".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu"]
-
     for link in hyperlinks:
         # Normalize the URL
         if link.startswith("/") or not link.startswith("http"):
             link = urljoin(url, link)
         parsed = urlparse(link)._replace(fragment="")
-        domain = parsed.netloc
-        path = parsed.path
-
-        # Check domain
-        if any(domain.endswith(allowed) for allowed in allowed_domains) or \
-           (domain == "today.uci.edu" and path.startswith("/department/information_computer_sciences")):
-            good_link = urlunparse(parsed)
-            result.append(good_link)
+        normalized_link = urlunparse(parsed)
+        result.append(normalized_link)
 
     return result
 
@@ -175,6 +177,15 @@ def is_valid(url):
     # Decide whether to crawl this url or not.
     try:
         parsed = urlparse(url)
+
+        # Check for allowed domains
+        allowed_domains = [".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu"]
+        domain = parsed.netloc.lower()
+        path = parsed.path.lower()
+
+        if not any(domain.endswith(allowed) for allowed in allowed_domains) and not \
+           (domain == "today.uci.edu" and path.startswith("/department/information_computer_sciences")):
+            return False
 
         # Check for disallowed query parameters
         if parsed.query and re.search(r"(date|ical|action|filter)", parsed.query.lower()):
@@ -204,12 +215,8 @@ def is_valid(url):
         if parsed.scheme not in set(["http", "https"]):
             return False
 
-        # Check if URL points to a known non-HTML resource even without extension
-        if 'wp-content/uploads' in parsed.path.lower():
-            return False
-
         # Existing file extension check
-        return not re.search(
+        if re.search(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             r"|png|tiff?|mid|mp2|mp3|mp4"
             r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf|ppsx|bib|sql"
@@ -217,7 +224,10 @@ def is_valid(url):
             r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             r"|epub|dll|cnf|tgz|sha1"
             r"|thmx|mso|arff|rtf|jar|csv"
-            r"|rm|smil|wmv|swf|wma|zip|rar|gz)(?:[\?#]|$)", parsed.path.lower())
+            r"|rm|smil|wmv|swf|wma|zip|rar|gz)(?:[\?#]|$)", parsed.path.lower()):
+            return False
+
+        return True
 
     except TypeError:
         print("TypeError for ", parsed)
@@ -237,7 +247,7 @@ def report_results():
 
     # Save the results to files
     with open("Logs/common_words.txt", "w") as f:
-        f.write("Top 50 Most Common Words:\n")
+        f.write("Top 100 Most Common Words:\n")
         for rank, (word, freq) in enumerate(most_common_words, 1):
             f.write(f"{rank}. {word}: {freq}\n")
 
