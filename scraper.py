@@ -106,15 +106,6 @@ def detect_similarity(url, text, threshold=3, hash_bits=64):
     # Add the current page to the records
     seen_hashes.add(page_hash)
     similar_pages[url] = page_hash
-   
-def print_similar_pairs():
-    """Prints all found similar page pairs."""
-    if similar_comparison:
-        print("Similar page found between the following page pairs:")
-        for url1, url2 in similar_comparison:
-            print(f"{url1} and {url2}")
-    else:
-        print("No similar pages found.")
         
 def contains_garbage_content(text):
     garbage_patterns = [
@@ -333,6 +324,14 @@ def report_results():
             f.write(f"Longest page: {longest_page['url']} with {longest_page['word_count']} words.\n")
         else:
             f.write("No pages crawled to determine the longest page.\n")
+            
+    with open("Logs/detect_similarity.txt", "w") as f:
+        if similar_comparison:
+            f.write("Similar page found between the following page pairs:\n")
+            for url1, url2 in similar_comparison:
+                f.write(f"{url1} and {url2}\n")
+        else:
+            f.write("No similar pages found.\n")
 
 def write_unique_urls_and_subdomains():
     # Ensure the Logs directory exists
