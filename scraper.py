@@ -6,9 +6,12 @@ from collections import Counter, defaultdict
 import nltk
 from nltk.corpus import stopwords
 
-# Initialize NLTK stop words
-nltk.download('stopwords')
-STOP_WORDS = set(stopwords.words('english'))
+try:
+    from nltk.corpus import stopwords
+    STOP_WORDS = set(stopwords.words('english'))
+except LookupError:
+    nltk.download('stopwords')
+    STOP_WORDS = set(stopwords.words('english'))
 
 # Global variables to track word frequencies and the longest page
 word_frequencies = Counter()
@@ -16,9 +19,6 @@ longest_page = {
     'url': None,
     'word_count': 0
 }
-# Global variables to track the number of processed URLs and whether results have been reported
-processed_urls = 0
-results_reported = False
 
 # Global variables to track unique URLs and subdomains
 unique_urls = set()
@@ -37,74 +37,47 @@ def tokenize(text):
     if current_token:
         yield current_token
 
-
 def contains_garbage_content(text):
     garbage_patterns = [
-        r'\x00',  # Null byte
-        r'�',      # Replacement character
-        r'\ufffd', # Unicode replacement character
+        r'\x00',          # Null byte
+        r'�',             # Replacement character
+        r'\ufffd',        # Unicode replacement character
         r'\bPDF-\d+\.\d+\b',  # PDF headers
         r'\bMicrosoft Word\b',
         r'\bOffice.Document\b'
         # Add more patterns as needed
     ]
-    
     for pattern in garbage_patterns:
         if re.search(pattern, text):
             return True
     return False
 
 def is_html_content(content_type):
-    """
-    Determines if the Content-Type indicates standard HTML content.
-    """
-    # Allow content types that start with 'text/html' and exclude others
-    if not content_type.startswith('text/html'):
-        return False
-    return True
-
-
+    # Determines if the Content-Type indicates standard HTML content.
+    return content_type.startswith('text/html')
 
 def scraper(url, resp):
-    global processed_urls
-    global results_reported
     global word_frequencies
     global longest_page
     global unique_urls
     global subdomains
 
-    # Increment the counter each time a URL is processed
-    processed_urls += 1
-
-    # Check if 100 URLs have been processed and results have not been reported yet
-    if processed_urls == 100 and not results_reported:
-        report_results()        # Output the scraping results
-        write_unique_urls_and_subdomains()  # Output the unique URLs and subdomains
-        results_reported = True  # Set the flag to prevent multiple reports
-        return []                # Optionally stop further crawling by returning an empty list
-
     # Check if the response status is 200 OK
     if resp.status != 200:
         return []
 
-    # Inside the scraper function after checking resp.status == 200
+    # Check if the Content-Type is HTML
     content_type = resp.raw_response.headers.get('Content-Type', '').lower()
     if not is_html_content(content_type):
         return []
 
-
-    # Extract and validate links from the current page
-    links = extract_next_links(url, resp)
-
     # Process the page content to update word frequencies and longest page
-    # Get the text content from the page
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
     text = soup.get_text(separator=' ', strip=True)
 
     # Check for garbage content
     if contains_garbage_content(text):
         return []
-    
 
     # Output the URL and its text content to a file
     with open("Logs/url_content.txt", "a", encoding="utf-8") as f:
@@ -128,28 +101,29 @@ def scraper(url, resp):
     # Process the current URL for uniqueness and subdomain tracking
     parsed_url = urlparse(resp.url)._replace(fragment="")
     normalized_url = urlunparse(parsed_url)
-    
+
     if normalized_url not in unique_urls:
         unique_urls.add(normalized_url)
-        
+
         # Extract subdomain
         domain_parts = parsed_url.netloc.split('.')
         if len(domain_parts) > 2:
             subdomain = '.'.join(domain_parts[:-2]) + '.' + '.'.join(domain_parts[-2:])
         else:
             subdomain = parsed_url.netloc  # No subdomain
-        
+
         subdomains[subdomain] += 1
 
+    # Extract and validate links from the current page
+    links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
-
 
 def extract_next_links(url, resp):
     # Implementation required.
     # Return a list with the hyperlinks (as strings) scraped from resp.raw_response.content
 
     error_phrases = [
-        "page not found", "404 error", "not available", "no longer exists", 
+        "page not found", "404 error", "not available", "no longer exists",
         "we couldn't find", "this page may have been removed"
     ]
 
@@ -157,8 +131,8 @@ def extract_next_links(url, resp):
     if not resp.raw_response:
         return []
 
-    # Don't parse pages that don't return correct status code or that have errors
-    if resp.status != 200 or any(resp.error == error_phrase for error_phrase in error_phrases):
+    # Don't parse pages that have errors
+    if any(error_phrase in resp.raw_response.content.decode('utf-8', 'ignore').lower() for error_phrase in error_phrases):
         return []
 
     # Use BeautifulSoup to parse the web page
@@ -170,7 +144,8 @@ def extract_next_links(url, resp):
         if any(
             input_tag.get("type") == "password" or
             input_tag.get("name") in ["username", "email", "password", "login"]
-            for input_tag in form.find_all("input")):
+            for input_tag in form.find_all("input")
+        ):
             return []
 
     # Get all the hyperlinks from the page
@@ -178,26 +153,23 @@ def extract_next_links(url, resp):
 
     # Remove those that don't belong to allowed domains
     result = []
-    allowed_domains = [".ics.uci.edu",".cs.uci.edu",".informatics.uci.edu",".stat.uci.edu"]
+    allowed_domains = [".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu"]
 
     for link in hyperlinks:
-        # Join partial directory
-        if link.startswith("/") and link.endswith("/"):
-            parsed = urlparse(urljoin(url, link))._replace(fragment="")
-        elif not link.startswith('http'):
-            continue
-        else:
-            parsed = urlparse(link)._replace(fragment="")
-
+        # Normalize the URL
+        if link.startswith("/") or not link.startswith("http"):
+            link = urljoin(url, link)
+        parsed = urlparse(link)._replace(fragment="")
         domain = parsed.netloc
         path = parsed.path
+
         # Check domain
-        if any(domain.endswith(allowed) for allowed in allowed_domains) or (domain == "today.uci.edu" and path.startswith("/department/information_computer_sciences")):
+        if any(domain.endswith(allowed) for allowed in allowed_domains) or \
+           (domain == "today.uci.edu" and path.startswith("/department/information_computer_sciences")):
             good_link = urlunparse(parsed)
             result.append(good_link)
 
     return result
-
 
 def is_valid(url):
     # Decide whether to crawl this url or not.
@@ -214,22 +186,18 @@ def is_valid(url):
 
         # Check for possible calendar URLs
         date_pattern = re.compile(
-            r"\b\d{4}[-/]\d{2}[-/]\d{2}\b|"
-            r"\b\d{2}[-/]\d{2}[-/]\d{4}\b|"
-            r"\b\d{4}[-/]\d{2}\b|"
-            r"\b\d{2}[-/]\d{4}\b"
+            r"\b\d{4}[-/]\d{2}[-/]\d{2}\b|"  # YYYY-MM-DD or YYYY/MM/DD
+            r"\b\d{2}[-/]\d{2}[-/]\d{4}\b|"  # MM-DD-YYYY or MM/DD/YYYY
+            r"\b\d{4}[-/]\d{2}\b|"           # YYYY-MM
+            r"\b\d{2}[-/]\d{4}\b"            # MM-YYYY
         )
         if bool(date_pattern.search(url)):
             return False
-        
-        pagination_patterns = [
-            r"(?:(?:\?|&)(?:page|p|pg|start|offset|limit)=)(\d+)", 
-        r"/(?:page|p|pg)/(\d+)"]
-        
-        for pattern in pagination_patterns:
-            page_match = re.search(pattern, url)
-            if page_match:
-                page_num = int(page_match.group(1))
+
+        # Avoid Pagination Traps
+        page_match = re.search(r"(?:(?:\?|&)page=|/page/)(\d+)", url)
+        if page_match:
+            page_num = int(page_match.group(1))
             if page_num > 5:
                 return False
 
@@ -243,16 +211,16 @@ def is_valid(url):
         # Existing file extension check
         return not re.search(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
-            + r"|png|tiff?|mid|mp2|mp3|mp4"
-            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf|ppsx|bib|sql"
-            + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
-            + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
-            + r"|epub|dll|cnf|tgz|sha1"
-            + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)(?:[\?#]|$)", parsed.path.lower())
+            r"|png|tiff?|mid|mp2|mp3|mp4"
+            r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf|ppsx|bib|sql"
+            r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
+            r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
+            r"|epub|dll|cnf|tgz|sha1"
+            r"|thmx|mso|arff|rtf|jar|csv"
+            r"|rm|smil|wmv|swf|wma|zip|rar|gz)(?:[\?#]|$)", parsed.path.lower())
 
     except TypeError:
-        print ("TypeError for ", parsed)
+        print("TypeError for ", parsed)
         raise
 
 def report_results():
@@ -262,12 +230,12 @@ def report_results():
     else:
         print("No pages crawled to determine the longest page.")
 
-    # Report the 50 most common words
-    most_common_words = word_frequencies.most_common(50)
+    # Report the 100 most common words
+    most_common_words = word_frequencies.most_common(100)
     for rank, (word, freq) in enumerate(most_common_words, 1):
         print(f"{rank}. {word}: {freq}")
 
-    # Optionally, save the results to files
+    # Save the results to files
     with open("Logs/common_words.txt", "w") as f:
         f.write("Top 50 Most Common Words:\n")
         for rank, (word, freq) in enumerate(most_common_words, 1):
@@ -280,7 +248,11 @@ def report_results():
             f.write("No pages crawled to determine the longest page.\n")
 
 def write_unique_urls_and_subdomains():
-    # Write the length of unique URLs set
+    # Ensure the Logs directory exists
+    if not os.path.exists("Logs"):
+        os.makedirs("Logs")
+
+    # Write the total number of unique URLs
     with open("Logs/unique_urls.txt", "w") as f:
         f.write(f"Total unique URLs: {len(unique_urls)}\n")
 
