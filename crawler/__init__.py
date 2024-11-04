@@ -14,7 +14,7 @@ class Crawler(object):
 
     def start_async(self):
         self.workers = [
-            self.worker_factory(worker_id, self.config, self.frontier, self.barrier)
+            self.worker_factory(worker_id, self.config, self.frontier)
             for worker_id in range(self.config.threads_count)]
         for worker in self.workers:
             worker.start()
