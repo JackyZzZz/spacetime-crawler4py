@@ -217,7 +217,7 @@ def extract_next_links(url, resp):
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
 
     #check if it has "high information value", we may not use it. Just some hardcode heuristics. 
-    if len(soup.get_text(separator=" ", strip=True)) < 200:
+    if len(soup.get_text(separator=" ", strip=True)) < 100:
         return list()
 
     # Detect if the page is a login page
