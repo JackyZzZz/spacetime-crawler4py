@@ -154,8 +154,9 @@ def scraper(url, resp):
     text = soup.get_text(separator=' ', strip=True)
 
     # Detecting the similarity
-    if detect_similarity(resp.url, text):
-        return []
+    # if detect_similarity(resp.url, text):
+    #     return []
+    detect_similarity(resp.url, text)
 
     # Check for garbage content
     if contains_garbage_content(text):
