@@ -94,6 +94,8 @@ def detect_similarity(url, text, threshold=3, hash_bits=64):
     global seen_hashes
     global similar_pages
     global similar_comparison
+    
+    result = False
 
     # Compute Simhash for the current page
     page_hash = compute_simhash(text, hash_bits)
@@ -102,10 +104,13 @@ def detect_similarity(url, text, threshold=3, hash_bits=64):
     for other_url, other_hash in similar_pages.items():
         if distance(page_hash, other_hash) <= threshold:
             similar_comparison.append((url, other_url))
+            result = True
 
     # Add the current page to the records
     seen_hashes.add(page_hash)
     similar_pages[url] = page_hash
+
+    return result
         
 def contains_garbage_content(text):
     garbage_patterns = [
@@ -144,6 +149,10 @@ def scraper(url, resp):
     # Process the page content to update word frequencies and longest page
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
     text = soup.get_text(separator=' ', strip=True)
+
+    # detecting the similarity
+    if detect_similarity(resp.url, text):
+        return []
 
     # Check for garbage content
     if contains_garbage_content(text):
@@ -193,8 +202,7 @@ def scraper(url, resp):
     links = extract_next_links(url, resp)
     valid_links = [link for link in links if is_valid(link)]
 
-    # detecting the similarity
-    detect_similarity(resp.url, text)
+
 
     return valid_links
 
@@ -217,7 +225,7 @@ def extract_next_links(url, resp):
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
 
     #check if it has "high information value", we may not use it. Just some hardcode heuristics. 
-    if len(soup.get_text(separator=" ", strip=True)) < 100:
+    if len(soup.get_text(separator=" ", strip=True)) < 50:
         return list()
 
     # Detect if the page is a login page
@@ -237,11 +245,10 @@ def extract_next_links(url, resp):
     result = []
     for link in hyperlinks:
         # Normalize the URL
-        if link.startswith("/") or not link.startswith("http"):
-            link = urljoin(url, link)
-        parsed = urlparse(link)._replace(fragment="")
-        normalized_link = urlunparse(parsed)
-        result.append(normalized_link)
+        if link.startswith("http"):
+            parsed = urlparse(link)._replace(fragment="")
+            normalized_link = urlunparse(parsed)
+            result.append(normalized_link)
 
     return result
 

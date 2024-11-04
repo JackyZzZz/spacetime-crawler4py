@@ -1,3 +1,4 @@
+import scraper
 from utils import get_logger
 from crawler.frontier import Frontier
 from crawler.worker import Worker
@@ -10,11 +11,10 @@ class Crawler(object):
         self.frontier = frontier_factory(config, restart)
         self.workers = list()
         self.worker_factory = worker_factory
-        self.barrier = Barrier(self.config.threads_count)
 
     def start_async(self):
         self.workers = [
-            self.worker_factory(worker_id, self.config, self.frontier, self.barrier)
+            self.worker_factory(worker_id, self.config, self.frontier)
             for worker_id in range(self.config.threads_count)]
         for worker in self.workers:
             worker.start()
@@ -26,3 +26,6 @@ class Crawler(object):
     def join(self):
         for worker in self.workers:
             worker.join()
+
+        scraper.report_results()
+        scraper.write_unique_urls_and_subdomains()
