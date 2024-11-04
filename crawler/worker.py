@@ -11,7 +11,7 @@ last_access_times = {}
 last_access_lock = Lock()
 
 class Worker(Thread):
-    def __init__(self, worker_id, config, frontier): # , barrier
+    def __init__(self, worker_id, config, frontier):
         self.logger = get_logger(f"Worker-{worker_id}", "Worker")
         self.config = config
         self.frontier = frontier
@@ -61,4 +61,5 @@ class Worker(Thread):
             
             except Exception as e:
                 self.logger.error(f"Error processing URL {tbd_url}: {e}", exc_info=True)
-                self.frontier.mark_url_complete(tbd_url)
+                if tbd_url:
+                    self.frontier.mark_url_complete(tbd_url)
