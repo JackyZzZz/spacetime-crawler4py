@@ -31,9 +31,10 @@ unique_urls_lock = Lock()
 subdomains_lock = Lock()
 file_lock = Lock()
 
-# detect similarity
+# Similarity detection variables and lock
+similarity_lock = Lock()
 seen_hashes = set()
-similar_pages = defaultdict(list)
+similar_pages = {}
 similar_comparison = []
 
 def tokenize(text):
@@ -48,7 +49,7 @@ def tokenize(text):
                 current_token = ''
     if current_token:
         yield current_token
-        
+            
 def compute_word_hash(word, hash_bits=64):
    # Generates a hash for the given word
     hash_value = 0
@@ -94,24 +95,26 @@ def detect_similarity(url, text, threshold=3, hash_bits=64):
     global seen_hashes
     global similar_pages
     global similar_comparison
-    
+
     result = False
 
     # Compute Simhash for the current page
     page_hash = compute_simhash(text, hash_bits)
 
-    # Check for similarity by comparing with seen hashes
-    for other_url, other_hash in similar_pages.items():
-        if distance(page_hash, other_hash) <= threshold:
-            similar_comparison.append((url, other_url))
-            result = True
+    # Use the lock to synchronize access to the shared variables
+    with similarity_lock:
+        # Check for similarity by comparing with seen hashes
+        for other_url, other_hash in similar_pages.items():
+            if distance(page_hash, other_hash) <= threshold:
+                similar_comparison.append((url, other_url))
+                result = True
 
-    # Add the current page to the records
-    seen_hashes.add(page_hash)
-    similar_pages[url] = page_hash
+        # Add the current page to the records
+        seen_hashes.add(page_hash)
+        similar_pages[url] = page_hash
 
     return result
-        
+            
 def contains_garbage_content(text):
     garbage_patterns = [
         r'\x00',          # Null byte
@@ -150,7 +153,7 @@ def scraper(url, resp):
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
     text = soup.get_text(separator=' ', strip=True)
 
-    # detecting the similarity
+    # Detecting the similarity
     if detect_similarity(resp.url, text):
         return []
 
@@ -202,8 +205,6 @@ def scraper(url, resp):
     links = extract_next_links(url, resp)
     valid_links = [link for link in links if is_valid(link)]
 
-
-
     return valid_links
 
 def extract_next_links(url, resp):
@@ -224,7 +225,7 @@ def extract_next_links(url, resp):
     # Use BeautifulSoup to parse the web page
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
 
-    #check if it has "high information value", we may not use it. Just some hardcode heuristics. 
+    # Check if it has "high information value", we may not use it. Just some hardcode heuristics. 
     if len(soup.get_text(separator=" ", strip=True)) < 50:
         return list()
 
