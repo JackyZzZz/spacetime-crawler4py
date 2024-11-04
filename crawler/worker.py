@@ -63,3 +63,4 @@ class Worker(Thread):
                 self.logger.error(f"Error processing URL {tbd_url}: {e}", exc_info=True)
                 if tbd_url:
                     self.frontier.mark_url_complete(tbd_url)
+                    time.sleep(self.config.time_delay)
