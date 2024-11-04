@@ -11,11 +11,11 @@ last_access_times = {}
 last_access_lock = Lock()
 
 class Worker(Thread):
-    def __init__(self, worker_id, config, frontier, barrier):
+    def __init__(self, worker_id, config, frontier): # , barrier
         self.logger = get_logger(f"Worker-{worker_id}", "Worker")
         self.config = config
         self.frontier = frontier
-        self.barrier = barrier
+        #self.barrier = barrier
         # Basic check for requests in scraper
         assert {getsource(scraper).find(req) for req in {"from requests import", "import requests"}} == {-1}, "Do not use requests in scraper.py"
         assert {getsource(scraper).find(req) for req in {"from urllib.request import", "import urllib.request"}} == {-1}, "Do not use urllib.request in scraper.py"
@@ -27,12 +27,13 @@ class Worker(Thread):
                 tbd_url = self.frontier.get_tbd_url()
                 if not tbd_url:
                     self.logger.info("Frontier is empty. Stopping Crawler.")
-                    index = self.barrier.wait()
-                    if index == 0:
-                        # Only one thread will execute this block
-                        scraper.report_results()
-                        scraper.write_unique_urls_and_subdomains()
                     break
+                    #index = self.barrier.wait()
+                    #if index == 0:
+                        # Only one thread will execute this block
+                        #scraper.report_results()
+                        #scraper.write_unique_urls_and_subdomains()
+                    #break
     
                 # Enforce politeness policy
                 domain = urlparse(tbd_url).netloc
