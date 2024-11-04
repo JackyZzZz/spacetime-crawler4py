@@ -31,6 +31,11 @@ unique_urls_lock = Lock()
 subdomains_lock = Lock()
 file_lock = Lock()
 
+# detect similarity
+seen_hashes = set()
+similar_pages = defaultdict(list)
+similar_comparison = []
+
 def tokenize(text):
     current_token = ''
     for char in text:
@@ -43,7 +48,74 @@ def tokenize(text):
                 current_token = ''
     if current_token:
         yield current_token
+        
+def compute_word_hash(word, hash_bits=64):
+   # Generates a hash for the given word
+    hash_value = 0
+    for i, char in enumerate(word):
+        hash_value += ord(char) * (101 ** i)
+        hash_value = hash_value & ((1 << hash_bits) - 1)  # Ensure it stays within the limit
+    return bin(hash_value)[2:].zfill(hash_bits)
 
+def compute_simhash(text, hash_bits=64):
+    # Computes the Simhash of the given text using the provided tokenize function.
+    tokens = list(tokenize(text))
+    token_counts = Counter(tokens)
+    vector = [0] * hash_bits
+
+    for token, weight in token_counts.items():  # Use frequency as weight
+        hash_bits_str = compute_word_hash(token, hash_bits)
+
+        for i in range(hash_bits):
+            if hash_bits_str[i] == '1':
+                vector[i] += weight
+            else:
+                vector[i] -= weight
+
+    # Create the fingerprint
+    fingerprint = 0
+    for i in range(hash_bits):
+        if vector[i] > 0:
+            fingerprint |= (1 << i)
+
+    return fingerprint
+
+def distance(hash1, hash2):
+    # Calculates the distance between two hash values.
+    x = hash1 ^ hash2
+    distance = 0
+    while x:
+        distance += x & 1
+        x >>= 1
+    return distance
+
+def detect_similarity(url, text, threshold=3, hash_bits=64):
+    # Detects similarity between the current page and previously processed pages.
+    global seen_hashes
+    global similar_pages
+    global similar_comparison
+
+    # Compute Simhash for the current page
+    page_hash = compute_simhash(text, hash_bits)
+
+    # Check for similarity by comparing with seen hashes
+    for other_url, other_hash in similar_pages.items():
+        if distance(page_hash, other_hash) <= threshold:
+            similar_comparison.append((url, other_url))
+
+    # Add the current page to the records
+    seen_hashes.add(page_hash)
+    similar_pages[url] = page_hash
+   
+def print_similar_pairs():
+    """Prints all found similar page pairs."""
+    if similar_comparison:
+        print("Similar page found between the following page pairs:")
+        for url1, url2 in similar_comparison:
+            print(f"{url1} and {url2}")
+    else:
+        print("No similar pages found.")
+        
 def contains_garbage_content(text):
     garbage_patterns = [
         r'\x00',          # Null byte
@@ -128,7 +200,12 @@ def scraper(url, resp):
 
     # Extract and validate links from the current page
     links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link)]
+    valid_links = [link for link in links if is_valid(link)]
+
+    # detecting the similarity
+    detect_similarity(resp.url, text)
+
+    return valid_links
 
 def extract_next_links(url, resp):
     # Return a list with the hyperlinks (as strings) scraped from resp.raw_response.content
