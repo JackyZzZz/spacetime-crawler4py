@@ -151,11 +151,12 @@ def scraper(url, resp):
 
     # Process the page content to update word frequencies and longest page
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
-    text = soup.get_text(separator=' ', strip=True)
+    
+    # Extract text from specific HTML tags
+    text_elements = soup.find_all(['p', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li'])
+    text = ' '.join(element.get_text(separator=' ', strip=True) for element in text_elements)
 
     # Detecting the similarity
-    # if detect_similarity(resp.url, text):
-    #     return []
     detect_similarity(resp.url, text)
 
     # Check for garbage content
