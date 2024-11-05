@@ -52,11 +52,23 @@ def tokenize(text):
             
 def compute_word_hash(word, hash_bits=64):
    # Generates a hash for the given word
-    hash_value = 0
-    for i, char in enumerate(word):
-        hash_value += ord(char) * (101 ** i)
-        hash_value = hash_value & ((1 << hash_bits) - 1)  # Ensure it stays within the limit
-    return bin(hash_value)[2:].zfill(hash_bits)
+    hash_value = 0xcbf29ce484222325  # Starting value (FNV offset basis for 64 bits)
+    prime = 0x100000001b3  # Large prime (FNV prime for 64 bits)
+
+    for char in word:
+        # Incorporate character into hash
+        hash_value ^= ord(char)              # XOR with ASCII value of the character
+        hash_value *= prime                  # Multiply by the prime to spread bits
+        hash_value &= (2 ** hash_bits - 1)  # Constrain to bit length by masking
+    
+    # Final mixing rounds to spread remaining patterns
+    hash_value ^= (hash_value >> 33)
+    hash_value *= prime
+    hash_value &= (2 ** hash_bits - 1)
+
+    # Convert to binary and pad to bit length
+    binary_hash = bin(hash_value)[2:].zfill(hash_bits)
+    return binary_hash[:hash_bits]
 
 def compute_simhash(text, hash_bits=64):
     # Computes the Simhash of the given text using the provided tokenize function.
@@ -90,13 +102,13 @@ def distance(hash1, hash2):
         x >>= 1
     return distance
 
-def detect_similarity(url, text, threshold=3, hash_bits=64):
+def detect_similarity(url, text, threshold=3, hash_bits=2048):
     # Detects similarity between the current page and previously processed pages.
     global seen_hashes
     global similar_pages
     global similar_comparison
 
-    result = False
+
 
     # Compute Simhash for the current page
     page_hash = compute_simhash(text, hash_bits)
@@ -107,13 +119,13 @@ def detect_similarity(url, text, threshold=3, hash_bits=64):
         for other_url, other_hash in similar_pages.items():
             if distance(page_hash, other_hash) <= threshold:
                 similar_comparison.append((url, other_url))
-                result = True
+                return True
 
         # Add the current page to the records
         seen_hashes.add(page_hash)
         similar_pages[url] = page_hash
 
-    return result
+    return False
             
 def contains_garbage_content(text):
     garbage_patterns = [
@@ -157,7 +169,8 @@ def scraper(url, resp):
     text = ' '.join(element.get_text(separator=' ', strip=True) for element in text_elements)
 
     # Detecting the similarity
-    detect_similarity(resp.url, text)
+    if detect_similarity(resp.url, text):
+        return []
 
     # Check for garbage content
     if contains_garbage_content(text):
