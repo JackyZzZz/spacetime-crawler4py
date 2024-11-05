@@ -1,17 +1,34 @@
 import re
 import os
-from urllib.parse import urlparse, urljoin, urlunparse
+from urllib.parse import urlparse, urljoin, urlunparse, unquote
 from bs4 import BeautifulSoup
 from collections import Counter, defaultdict
-import nltk
 from threading import Lock
+import nltk
 from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from boilerpy3 import extractors
+from langdetect import detect, DetectorFactory
+import hashlib
+import logging
 
+# Set up logging
+logging.basicConfig(filename='crawler.log', level=logging.INFO)
+
+# Ensure consistent language detection results
+DetectorFactory.seed = 0
+
+# Initialize NLTK resources
 try:
     STOP_WORDS = set(stopwords.words('english'))
 except LookupError:
     nltk.download('stopwords')
     STOP_WORDS = set(stopwords.words('english'))
+
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
 
 # Global variables to track word frequencies and the longest page
 word_frequencies = Counter()
@@ -30,38 +47,36 @@ longest_page_lock = Lock()
 unique_urls_lock = Lock()
 subdomains_lock = Lock()
 file_lock = Lock()
+content_hash_lock = Lock()
+
+# Processed content hashes to detect duplicates
+processed_hashes = set()
 
 def tokenize(text):
-    current_token = ''
-    for char in text:
-        char = char.lower()
-        if 'a' <= char <= 'z' or '0' <= char <= '9':
-            current_token += char
-        else:
-            if current_token:
-                yield current_token
-                current_token = ''
-    if current_token:
-        yield current_token
-
-def contains_garbage_content(text):
-    garbage_patterns = [
-        r'\x00',          # Null byte
-        r'�',             # Replacement character
-        r'\ufffd',        # Unicode replacement character
-        r'\bPDF-\d+\.\d+\b',  # PDF headers
-        r'\bMicrosoft Word\b',
-        r'\bOffice.Document\b'
-        # Add more patterns as needed
-    ]
-    for pattern in garbage_patterns:
-        if re.search(pattern, text):
-            return True
-    return False
+    tokens = word_tokenize(text.lower())
+    return [token for token in tokens if token.isalnum()]
 
 def is_html_content(content_type):
     # Determines if the Content-Type indicates standard HTML content.
     return content_type.startswith('text/html')
+
+def get_content_hash(text):
+    return hashlib.md5(text.encode('utf-8')).hexdigest()
+
+def get_text_to_html_ratio(soup):
+    text = soup.get_text(separator=' ', strip=True)
+    total_text_length = len(text)
+    total_html_length = len(str(soup))
+    if total_html_length == 0:
+        return 0
+    return total_text_length / total_html_length
+
+def link_text_ratio(soup):
+    link_text = ' '.join(a.get_text() for a in soup.find_all('a'))
+    total_text = soup.get_text(separator=' ', strip=True)
+    if len(total_text) == 0:
+        return 0
+    return len(link_text) / len(total_text)
 
 def scraper(url, resp):
     global word_frequencies
@@ -71,25 +86,59 @@ def scraper(url, resp):
 
     # Check if the response status is 200 OK
     if resp.status != 200:
+        logging.warning(f"Non-200 response for URL {url}: {resp.status}")
         return []
 
     # Check if the Content-Type is HTML
     content_type = resp.raw_response.headers.get('Content-Type', '').lower()
     if not is_html_content(content_type):
+        logging.info(f"Non-HTML content at URL {url}: {content_type}")
         return []
 
-    # Process the page content to update word frequencies and longest page
-    soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
-    
-    # Extract text from specific HTML tags
-    text_elements = soup.find_all(['p', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li'])
-    text = ' '.join(element.get_text(separator=' ', strip=True) for element in text_elements)
-
-    # Check for garbage content
-    if contains_garbage_content(text):
+    # Decode the content
+    try:
+        html_content = resp.raw_response.content.decode('utf-8', 'ignore')
+    except Exception as e:
+        logging.error(f"Error decoding content from URL {url}: {e}")
         return []
 
-    tokens = list(tokenize(text))
+    soup = BeautifulSoup(html_content, 'html.parser')
+
+    # Extract main content using boilerplate removal
+    extractor = extractors.ArticleExtractor()
+    try:
+        main_content = extractor.get_content(html_content)
+    except Exception as e:
+        logging.error(f"Error extracting main content from URL {url}: {e}")
+        return []
+
+    if not main_content or len(main_content) < 200:
+        logging.info(f"Low-content page at URL {url}")
+        return []
+
+    # Check text-to-HTML ratio
+    text_to_html_ratio = get_text_to_html_ratio(soup)
+    if text_to_html_ratio < 0.05:
+        logging.info(f"Low text-to-HTML ratio at URL {url}")
+        return []
+
+    # Check link-to-text ratio
+    ratio = link_text_ratio(soup)
+    if ratio > 0.5:
+        logging.info(f"High link-to-text ratio at URL {url}")
+        return []
+
+    # Compute content hash to avoid duplicates
+    content_hash = get_content_hash(main_content)
+    with content_hash_lock:
+        if content_hash in processed_hashes:
+            logging.info(f"Duplicate content at URL {url}")
+            return []
+        else:
+            processed_hashes.add(content_hash)
+
+    # Tokenize and process the main content
+    tokens = tokenize(main_content)
 
     # Remove stop words
     filtered_tokens = [token for token in tokens if token not in STOP_WORDS]
@@ -116,7 +165,7 @@ def scraper(url, resp):
             # Extract subdomain
             domain_parts = parsed_url.netloc.split('.')
             if len(domain_parts) > 2:
-                subdomain = '.'.join(domain_parts[:-2]) + '.' + '.'.join(domain_parts[-2:])
+                subdomain = '.'.join(domain_parts)
             else:
                 subdomain = parsed_url.netloc  # No subdomain
 
@@ -127,10 +176,10 @@ def scraper(url, resp):
     with file_lock:
         with open("Logs/url_content.txt", "a", encoding="utf-8") as f:
             f.write(f"URL: {resp.url}\n")
-            f.write(f"Text content:\n{text}\n{'-'*80}\n")
+            f.write(f"Text content:\n{main_content}\n{'-'*80}\n")
 
     # Extract and validate links from the current page
-    links = extract_next_links(url, resp)
+    links = extract_next_links(resp.url, resp)
     valid_links = [link for link in links if is_valid(link)]
 
     return valid_links
@@ -139,23 +188,27 @@ def extract_next_links(url, resp):
     # Return a list with the hyperlinks (as strings) scraped from resp.raw_response.content
     error_phrases = [
         "page not found", "404 error", "not available", "no longer exists",
-        "we couldn't find", "this page may have been removed"
+        "we couldn't find", "this page may have been removed", "error 404"
     ]
 
     # Don't parse pages with no content
     if not resp.raw_response:
+        logging.warning(f"No content at URL {url}")
         return []
 
-    # Don't parse pages that have errors
-    if any(error_phrase in resp.raw_response.content.decode('utf-8', 'ignore').lower() for error_phrase in error_phrases):
+    # Check for error messages in content
+    content = resp.raw_response.content.decode('utf-8', 'ignore')
+    if any(phrase in content.lower() for phrase in error_phrases):
+        logging.info(f"Error page detected at URL {url}")
         return []
 
     # Use BeautifulSoup to parse the web page
-    soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
+    soup = BeautifulSoup(content, 'html.parser')
 
-    # Check if it has "high information value", we may not use it. Just some hardcode heuristics. 
+    # Check if it has "high information value"
     if len(soup.get_text(separator=" ", strip=True)) < 50:
-        return list()
+        logging.info(f"Low-information page at URL {url}")
+        return []
 
     # Detect if the page is a login page
     forms = soup.find_all("form")
@@ -165,6 +218,7 @@ def extract_next_links(url, resp):
             input_tag.get("name") in ["username", "email", "password", "login"]
             for input_tag in form.find_all("input")
         ):
+            logging.info(f"Login page detected at URL {url}")
             return []
 
     # Get all the hyperlinks from the page
@@ -182,8 +236,14 @@ def extract_next_links(url, resp):
     return result
 
 def is_valid(url):
-    # Decide whether to crawl this url or not.
     try:
+        parsed = urlparse(url)
+
+        if parsed.scheme not in set(["http", "https"]):
+            return False
+
+        # Normalize URL
+        url = urlunparse(parsed._replace(fragment=""))
         parsed = urlparse(url)
 
         # Check for allowed domains
@@ -195,32 +255,56 @@ def is_valid(url):
            (domain == "today.uci.edu" and path.startswith("/department/information_computer_sciences")):
             return False
 
-        # Check for disallowed query parameters
-        if parsed.query and re.search(r"(date|ical|action|filter)", parsed.query.lower()):
+        # Exclude disallowed query parameters
+        disallowed_query = re.compile(r"(sessionid=|sid=|phpsessid=|jsessionid=|utm_|fbclid=|gclid=|date|ical|action|filter)")
+        if parsed.query and disallowed_query.search(parsed.query.lower()):
             return False
 
-        # Check for disallowed URL patterns
-        if re.search(r"(/pdf/|login|facebook|twitter|wp-content/uploads)", url.lower()):
-            return False
-
-        # Check for possible calendar URLs
-        date_pattern = re.compile(
-            r"\b\d{4}[-/]\d{2}[-/]\d{2}\b|"  # YYYY-MM-DD or YYYY/MM/DD
-            r"\b\d{2}[-/]\d{2}[-/]\d{4}\b|"  # MM-DD-YYYY or MM/DD/YYYY
-            r"\b\d{4}[-/]\d{2}\b|"           # YYYY-MM
-            r"\b\d{2}[-/]\d{4}\b"            # MM-YYYY
+        # Exclude disallowed URL patterns
+        disallowed_patterns = re.compile(
+            r"(/pdf/|/rss/|/feed/|/wp-json/|/tag/|/category/|login|logout|signup|register|"
+            r"facebook|twitter|linkedin|instagram|wp-content/uploads|print=|format=)"
         )
-        if bool(date_pattern.search(url)):
+        if disallowed_patterns.search(url.lower()):
+            return False
+
+        # Exclude calendar and date URLs
+        date_pattern = re.compile(
+            r"/\d{4}/\d{1,2}/\d{1,2}/"
+            r"|/\d{1,2}/\d{1,2}/\d{4}/"
+            r"|/\d{4}-\d{1,2}-\d{1,2}/"
+            r"|/\d{1,2}-\d{1,2}-\d{4}/"
+        )
+        if date_pattern.search(url):
             return False
 
         # Avoid Pagination Traps
-        page_match = re.search(r"(?:(?:\?|&)page=|/page/)(\d+)", url)
-        if page_match:
-            page_num = int(page_match.group(1))
-            if page_num > 5:
-                return False
+        pagination_patterns = [
+            r"(?:(?:\?|&)(?:page|p|pg|start)=)(\d+)",
+            r"/page/(\d+)",
+        ]
+        for pattern in pagination_patterns:
+            match = re.search(pattern, url)
+            if match:
+                page_num = int(match.group(1))
+                if page_num > 5:
+                    return False
 
-        if parsed.scheme not in set(["http", "https"]):
+        # Avoid Repeating Directories
+        if re.search(r"(\/\w+\/)\1{2,}", parsed.path):
+            return False
+
+        # Avoid Very Long URLs
+        if len(url) > 200:
+            return False
+
+        # Avoid URLs with excessive encoding
+        decoded_path = unquote(parsed.path)
+        if '%' in decoded_path:
+            return False
+
+        # Avoid URLs with too many parameters
+        if len(parsed.query.split('&')) > 5:
             return False
 
         # Existing file extension check
@@ -238,8 +322,11 @@ def is_valid(url):
         return True
 
     except TypeError:
-        print("TypeError for ", parsed)
-        raise
+        logging.error(f"TypeError for URL {url}")
+        return False
+    except Exception as e:
+        logging.error(f"Error validating URL {url}: {e}")
+        return False
 
 def report_results():
     # Report the longest page
@@ -266,17 +353,12 @@ def report_results():
             f.write("No pages crawled to determine the longest page.\n")
 
 def write_unique_urls_and_subdomains():
-    # Ensure the Logs directory exists
-    if not os.path.exists("Logs"):
-        os.makedirs("Logs")
-
     # Write the total number of unique URLs
     with open("Logs/unique_urls.txt", "w") as f:
         f.write(f"Total unique URLs: {len(unique_urls)}\n")
 
     # Write the subdomains dictionary sorted alphabetically by subdomain
-    sorted_subdomains = dict(sorted(subdomains.items()))
     with open("Logs/subdomains.txt", "w") as f:
         f.write("Subdomains and their unique page counts:\n")
-        for subdomain, count in sorted_subdomains.items():
+        for subdomain, count in sorted(subdomains.items()):
             f.write(f"{subdomain}: {count}\n")
