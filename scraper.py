@@ -102,7 +102,7 @@ def distance(hash1, hash2):
         x >>= 1
     return distance
 
-def detect_similarity(url, text, threshold=3, hash_bits=2048):
+def detect_similarity(url, text, threshold=2, hash_bits=2048):
     # Detects similarity between the current page and previously processed pages.
     global seen_hashes
     global similar_pages
