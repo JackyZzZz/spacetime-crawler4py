@@ -42,8 +42,7 @@ class Worker(Thread):
                             # Only one thread will execute this block
                             scraper.report_results()
                             scraper.write_unique_urls_and_subdomains()
-                        break  # Exit the loop to terminate the thread
-                # Wait a bit and check again
+                        break
                 time.sleep(0.1)
                 continue
 

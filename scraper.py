@@ -52,14 +52,14 @@ def tokenize(text):
             
 def compute_word_hash(word, hash_bits=64):
    # Generates a hash for the given word
-    hash_value = 0xcbf29ce484222325  # Starting value (FNV offset basis for 64 bits)
-    prime = 0x100000001b3  # Large prime (FNV prime for 64 bits)
+    hash_value = 0xcbf29ce484222325
+    prime = 0x100000001b
 
     for char in word:
         # Incorporate character into hash
-        hash_value ^= ord(char)              # XOR with ASCII value of the character
-        hash_value *= prime                  # Multiply by the prime to spread bits
-        hash_value &= (2 ** hash_bits - 1)  # Constrain to bit length by masking
+        hash_value ^= ord(char)
+        hash_value *= prime
+        hash_value &= (2 ** hash_bits - 1)
     
     # Final mixing rounds to spread remaining patterns
     hash_value ^= (hash_value >> 33)
@@ -76,7 +76,7 @@ def compute_simhash(text, hash_bits=64):
     token_counts = Counter(tokens)
     vector = [0] * hash_bits
 
-    for token, weight in token_counts.items():  # Use frequency as weight
+    for token, weight in token_counts.items():
         hash_bits_str = compute_word_hash(token, hash_bits)
 
         for i in range(hash_bits):
@@ -129,10 +129,10 @@ def detect_similarity(url, text, threshold=2, hash_bits=2048):
             
 def contains_garbage_content(text):
     garbage_patterns = [
-        r'\x00',          # Null byte
-        r'�',             # Replacement character
-        r'\ufffd',        # Unicode replacement character
-        r'\bPDF-\d+\.\d+\b',  # PDF headers
+        r'\x00',
+        r'�',
+        r'\ufffd',
+        r'\bPDF-\d+\.\d+\b',
         r'\bMicrosoft Word\b',
         r'\bOffice.Document\b'
         # Add more patterns as needed
@@ -292,10 +292,10 @@ def is_valid(url):
 
         # Check for possible calendar URLs
         date_pattern = re.compile(
-            r"\b\d{4}[-/]\d{2}[-/]\d{2}\b|"  # YYYY-MM-DD or YYYY/MM/DD
-            r"\b\d{2}[-/]\d{2}[-/]\d{4}\b|"  # MM-DD-YYYY or MM/DD/YYYY
-            r"\b\d{4}[-/]\d{2}\b|"           # YYYY-MM
-            r"\b\d{2}[-/]\d{4}\b"            # MM-YYYY
+            r"\b\d{4}[-/]\d{2}[-/]\d{2}\b|"
+            r"\b\d{2}[-/]\d{2}[-/]\d{4}\b|"
+            r"\b\d{4}[-/]\d{2}\b|"
+            r"\b\d{2}[-/]\d{4}\b"
         )
         if bool(date_pattern.search(url)):
             return False
