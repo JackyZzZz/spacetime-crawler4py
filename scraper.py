@@ -179,7 +179,7 @@ def scraper(url, resp):
     tokens = list(tokenize(text))
 
     # Remove stop words
-    filtered_tokens = [token for token in tokens if token not in STOP_WORDS]
+    filtered_tokens = [token for token in tokens if token not in STOP_WORDS and len(token) >= 3]
 
     # Update word frequencies
     with word_frequencies_lock:
